@@ -1,0 +1,468 @@
+---
+title: Air Pollution Programming Assignment
+format: html
+---
+
+In this programming assignment, I was tasked with writing three functions
+that were meant to interact with the dataset that accompanies this assignment.
+The dataset is contained in the `specdata` directory.
+
+## Data
+
+The `specdata` directory contains 332 CSV files containing pollution monitoring
+data for fine particulate matter (PM) air pollution at 332 locations in the US.
+Each file contains data from a single monitor and the ID number
+for each monitor is contained in the file name. For example,
+data for monitor 200 is contained in the file `200.csv`.
+Each file contains three variables:
+
+- Date: the date of the observation in `YYYY-MM-DD` format (year-month-day)
+- sulfate: the level of sulfate PM in the air on that date
+  (measured in micrograms per cubic meter)
+- nitrate: the level of nitrate PM in the air on that date
+  (measured in micrograms per cubic meter)
+
+> In each file there are many days when either sulfate or nitrate
+> (or both) are missing (coded as NA). This is common with air pollution
+> monitoring data in the United States.
+
+## Setup
+
+To run Quarto notebooks, we need to install the rmarkdown, tidyverse,
+and palmerpenguins packages:
+
+```{r}
+install.packages("rmarkdown", repos = "https://cloud.r-project.org")
+install.packages("tidyverse", repos = "https://cloud.r-project.org")
+install.packages("palmerpenguins", repos = "https://cloud.r-project.org")
+
+library(rmarkdown)
+library(tidyverse)
+library(palmerpenguins)
+```
+
+## Part 1 — Pollutant Mean Analysis Across Monitoring Stations
+
+Write a function named `pollutantmean` that calculates the mean of a pollutant
+(sulfate or nitrate) across a specified list of monitors. The `pollutantmean`
+function takes three arguments: `directory`, `pollutant`, and `id`.
+Given a vector monitor ID numbers, `pollutantmean` reads that monitors'
+particulate matter data from the directory specified in the `directory`
+argument and returns the mean of the pollutant across all the monitors,
+ignoring any missing values coded as NA.
+
+```{r}
+pollutantmean <- function(directory, pollutant, id = 1:332) {
+    # Create an empty numeric vector
+    # This will store pollutant values from all monitors
+    pollutant_values <- numeric()
+
+    # Loop through each monitor id
+    for (i in id) {
+
+        # Build the file name using 3-digit formatting
+        # Example: 1 -> "001.csv"
+        file_name <- sprintf("%03d.csv", i)
+
+        # Create the complete file path
+        # Example: "specdata/001.csv"
+        file_path <- file.path(directory, file_name)
+
+        # Read the CSV file into a data frame
+        data <- read.csv(file_path)
+
+        # Extract the selected pollutant column
+        # pollutant can be "sulfate" or "nitrate"
+        pollutant_column <- data[[pollutant]]
+
+        # Append pollutant values to the main vector
+        pollutant_values <- c(
+            pollutant_values,
+            pollutant_column
+        )
+    }
+
+    # Calculate the mean while ignoring missing values (NA)
+    mean(pollutant_values, na.rm = TRUE)
+}
+```
+
+### Testing the `pollutantmean` function
+
+```{r}
+pollutantmean("specdata", "sulfate", 1:10)   # Prints 4.064128
+pollutantmean("specdata", "nitrate", 70:72)  # Prints 1.70604
+pollutantmean("specdata", "nitrate", 23)     # Prints 1.280833
+```
+
+### Notes and Observations (Part 1)
+
+This exercise is more important than it initially appears because it introduces
+several foundational concepts used constantly in real-world Data Science
+and Data Engineering workflows.
+
+At a high level, we are building a small-scale data ingestion and aggregation
+pipeline.
+
+The exercise teaches us how to:
+
+* Read data from multiple files
+* Dynamically generate file paths
+* Iterate through datasets programmatically
+* Extract only relevant variables
+* Handle missing data (NA)
+* Aggregate values across distributed datasets
+* Compute summary statistics
+
+Conceptually, this is a simplified version of what happens in production
+analytics systems.
+
+For example:
+
+* Each CSV file represents a separate data source or sensor
+* The `specdata` directory behaves like a distributed dataset
+* Our function acts as a data processing job
+* `mean()` becomes a statistical aggregation step
+
+This mirrors real systems where:
+
+* IoT sensors produce separate files
+* Logs are partitioned by date or server
+* Data lakes store datasets across many objects/files
+
+The most important data science concepts hidden inside this exercise are:
+
+1. Data ingestion
+    Loading raw data into memory for analysis.
+2. Data wrangling
+    Extracting only needed columns and combining datasets.
+3. Missing data handling
+    Real-world datasets are incomplete. Ignoring NA correctly is critical.
+4. Functional abstraction
+    You are creating reusable analysis logic instead of writing repetitive
+    code.
+5. Statistical aggregation
+    The mean is one of the simplest summary statistics, but the same pattern
+    scales to:
+
+    * medians
+    * correlations
+    * regressions
+    * machine learning feature generation
+
+Architecturally, this exercise is also teaching us an important mindset shift:
+
+Instead of thinking:
+
+> “I manually analyze one file”
+
+we begin thinking:
+
+> “I design a system that analyzes arbitrary datasets automatically.”
+
+## Part 2 — Complete Case Analysis Across Monitoring Stations
+
+Write a function that reads a directory full of files and reports the number
+of completely observed cases in each data file. The function should return
+a data frame where the first column is the name of the file and the second
+column is the number of complete cases.
+
+```{r}
+complete <- function(directory, id = 1:332) {
+    # Create an empty data frame to store results
+    # id   -> monitor ID
+    # nobs -> number of complete observations
+    result <- data.frame(
+        id = integer(),
+        nobs = integer()
+    )
+
+    # Loop through each monitor ID
+    for (i in id) {
+      
+        # Create file name with leading zeros
+        # Example: 1 -> "001.csv"
+        file_name <- sprintf("%03d.csv", i)
+
+        # Build the complete file path
+        file_path <- file.path(directory, file_name)
+
+        # Read the CSV file into a data frame
+        data <- read.csv(file_path)
+
+        # Identify rows with no missing values
+        # complete.cases() returns TRUE/FALSE for each row
+        complete_rows <- complete.cases(data)
+
+        # Count how many rows are completely observed
+        n_complete <- sum(complete_rows)
+
+        # Add monitor result to the output data frame
+        result <- rbind(
+            result,
+            data.frame(
+                id = i,
+                nobs = n_complete
+            )
+        )
+    }
+
+    # Return final results table
+    result
+}
+```
+
+
+### Testing the `complete` function
+
+```{r}
+complete("specdata", 1)
+complete("specdata", c(2, 4, 8, 10, 12))
+complete("specdata", 30:25)
+complete("specdata", 3)
+```
+
+### Notes and Observations (Part 2)
+
+This exercise is fundamentally about data quality assessment,
+which is one of the most important and underestimated parts of Data Science.
+
+The function is not really about counting rows. It is about answering a much
+deeper question:
+
+> “How reliable is the data source?”
+
+In real-world analytics and ML systems, missing data is everywhere:
+
+* sensor failures
+* incomplete forms
+* broken pipelines
+* API outages
+* corrupted records
+* human error
+
+Before building models or generating insights, we must first determine
+whether the data is trustworthy enough to use.
+
+This exercise teaches several critical concepts.
+
+First, it introduces the idea of complete observations:
+
+* A complete case is a row with no missing values
+* In this dataset, a row is only complete if all variables exist (Date, sulfate,
+  nitrate)
+
+This matters because many statistical methods and ML algorithms assume
+complete data.
+
+Second, it teaches data profiling. Our function is effectively profiling
+each monitor:
+
+* Which monitors have reliable data?
+* Which monitors have sparse or incomplete observations?
+* Which sources should be trusted more?
+
+This is exactly what happens in production data systems.
+
+For example:
+
+* A data engineer checks pipeline completeness
+* A machine learning engineer validates training data quality
+* A data scientist evaluates whether missingness introduces bias
+
+Third, this exercise teaches an important analytical mindset:
+we are not just consuming data—we are auditing it. That shift is critical.
+
+Architecturally, the function also teaches:
+
+* Iteration over distributed datasets
+* Aggregation into summary tables
+* Boolean masking (complete.cases)
+* Building reusable data quality utilities
+
+The output is essentially a miniature data quality report.
+
+In larger systems, this same pattern scales into:
+
+* pipeline observability
+* data validation frameworks
+* monitoring dashboards
+* feature quality metrics
+* ML data contracts
+
+## Part 3 — Correlation Analysis Between Sulfate and Nitrate Levels
+
+Write a function that takes a directory of data files and a threshold
+for complete cases and calculates the correlation between sulfate and nitrate
+for monitor locations where the number of completely observed cases
+(on all variables) is greater than the threshold. The function should return
+a vector of correlations for the monitors that meet the threshold requirement.
+If no monitors meet the threshold requirement, then the function should return
+a numeric vector of length `0`.
+
+```{r}
+corr <- function(directory, threshold = 0) {
+
+    # Create an empty numeric vector to store correlations
+    correlations <- numeric()
+
+    # Get all CSV file names from the directory
+    files <- list.files(directory, full.names = TRUE)
+
+    # Loop through each file
+    for (file in files) {
+
+        # Read current CSV file
+        data <- read.csv(file)
+
+        # Identify rows with complete observations        
+        # (no missing values in any column)
+        complete_rows <- complete.cases(data)
+
+        # Count how many complete observations exist
+        n_complete <- sum(complete_rows)
+
+        # Only calculate correlation if the monitor
+        # has more complete cases than the threshold
+        if (n_complete > threshold) {
+
+            # Subset data to only complete rows
+            complete_data <- data[complete_rows, ]
+
+            # Calculate correlation between sulfate and nitrate
+            correlation_value <- cor(
+                complete_data$sulfate,
+                complete_data$nitrate
+            )
+
+            # Append correlation result to vector
+            correlations <- c(
+                correlations,
+                correlation_value
+            )
+        }
+    }
+
+    # Return vector of correlations
+    correlations
+}
+```
+
+### Testing the `corr` function
+
+```{r}
+cr <- corr("specdata", 150)
+head(cr)
+summary(cr)
+
+cr <- corr("specdata", 400)
+head(cr)
+summary(cr)
+
+cr <- corr("specdata", 5000)
+summary(cr)
+length(cr)
+
+cr <- corr("specdata")
+summary(cr)
+length(cr)
+
+cr <- corr("specdata")
+cr <- sort(cr)
+set.seed(868)
+out <- round(cr[sample(length(cr), 5)], 4)
+print(out)
+```
+
+### Notes and Observations (Part 3)
+
+This exercise is extremely important because it introduces one of the most
+fundamental concepts in Statistics, Data Science, and Machine Learning:
+
+> understanding relationships between variables.
+
+The previous exercises focused on:
+
+* aggregation (mean)
+* data quality (complete cases)
+
+This third exercise moves into:
+
+* statistical relationships
+* feature interaction analysis
+* exploratory data analysis (EDA)
+
+That is a major conceptual step forward.
+
+The `corr()` function measures how strongly two pollutants (sulfate and nitrate)
+move together.
+
+A positive correlation means:
+
+* when sulfate increases, nitrate tends to increase
+
+A negative correlation means:
+
+* when sulfate increases, nitrate tends to decrease
+
+A near-zero correlation means:
+
+* little or no linear relationship
+
+This is foundational because almost every advanced analytical
+workflow begins with relationship analysis.
+
+Examples:
+
+* In finance → correlation between stocks
+* In healthcare → correlation between biomarkers
+* In cybersecurity → correlation between system events
+* In recommender systems → correlation between user behaviors
+* In ML → correlation between features and targets
+
+This assignment also introduces an extremely important real-world concept:
+
+> not all data sources are equally reliable.
+
+That is why the threshold parameter exists.
+
+Instead of blindly computing correlations on every monitor, we first verify:
+
+* does this monitor contain enough complete observations?
+
+This is a primitive form of data validation and statistical reliability filtering.
+
+A monitor with five complete observations should not be trusted as much as one
+with 1000 complete observations.
+
+So the exercise teaches us:
+
+* statistical computation
+* data filtering
+* quality thresholds
+* conditional processing
+* reproducible analysis pipelines
+
+From an architectural perspective, the function behaves like a distributed
+analytics job:
+
+1. Iterate through multiple data sources
+2. Validate data quality
+3. Compute statistical metrics
+4. Aggregate results
+
+That pattern appears everywhere in modern data systems.
+
+The most important data science mindset introduced here is this:
+
+Before interpreting a statistical relationship, validate whether the underlying
+data is sufficient and trustworthy.
+
+That principle becomes critical later in:
+
+* ML feature selection
+* causal inference
+* A/B testing
+* anomaly detection
+* predictive modeling
+
