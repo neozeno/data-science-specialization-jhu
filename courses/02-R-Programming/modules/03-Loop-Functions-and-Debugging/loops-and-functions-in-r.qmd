@@ -1,0 +1,571 @@
+---
+title: Loops and Functions in R
+format: html
+---
+
+In R, loops exist at two different abstraction levels:
+
+1. Imperative loops — you explicitly control iteration (`for`, `while`, `repeat`)
+2. Functional iteration — you pass functions into higher-order functions (`apply`, `lapply`, `purrr::map`, etc.)
+
+The second style is heavily preferred in idiomatic R because:
+
+- R is vectorized
+- Functional iteration is usually shorter and safer
+- It avoid manual indexing bugs
+- Many operations are implemented internally with optimized C code
+
+Think of it this way:
+
+- `for` loops = manually driving a car
+- `apply` family = using autopilot for common iteration patterns
+
+---
+
+## Basic Loops in R
+
+### `for` Loop
+
+Used when you know how many iterations you need.
+
+```{r}
+numbers <- c(1, 2, 3, 4, 5)
+
+for (n in numbers) print(n * 2)
+```
+
+#### Internals
+
+R iterates through each element in the vector and binds it to n.
+
+Equivalent mental model:
+
+```{r}
+n <- numbers[1]
+n <- numbers[2]
+```
+
+### Index-based `for`
+
+Useful when position matters.
+
+```{r}
+numbers <- c(10, 20, 30)
+
+for (i in seq_along(numbers)) {
+    cat("Index: ", i, "Value: ", numbers[i], "\n")
+}
+```
+
+Use `seq_along()` instead of `1:length(x)` because it safely handles empty vectors.
+
+### `while` loop
+
+Runs while a condition is true.
+
+```{r}
+x <- 1
+
+while (x <= 5) {
+    print(x)
+    x <- x + 1
+}
+```
+
+Good for:
+
+- unknown iteration counts
+- polling
+- simulations
+- convergence algorithms
+
+### `repeat` loop
+
+Infinite loop until explicitly stopped with `break`.
+
+```{r}
+y <- 1
+
+repeat {
+    print(y)
+
+    if (y == 5) break
+
+    y <- y + 1
+}
+```
+
+Useful for:
+
+- retry logic
+- event processing
+- iterative convergence
+
+## Control Statements
+
+### `break`
+
+Stops a loop entirely.
+
+```{r}
+for (i in 1:10) {
+    if (i == 5) break
+    print(i)
+}
+```
+
+### `next`
+
+Skips current iteration.
+
+```{r}
+for (i in 1:5) {
+    if (i  == 3) next
+    print(i)
+}
+```
+
+## Vectorization (Preferred Over Many Loops)
+
+R is fundamentally vector-oriented.
+
+Instead of:
+
+```{r}
+result <- c()
+
+for (i in 1:5) result[i] <- i * 2
+```
+
+Prefer:
+
+```{r}
+result <- 1:5 * 2
+```
+
+This is:
+
+- cleaner
+- faster
+- memory efficient
+
+## The `apply` Family
+
+The `apply` family abstracts iteration patterns.
+
+### `apply()`
+
+Applies a function across rows or columns of matrices/data frames.
+
+Syntax:
+
+```{r}
+str(apply)
+```
+
+Where:
+
+- `X` = matrix or array
+- `MARGIN`
+    - `1` = rows
+    - `2` = columns
+- `FUN` = function
+- `...` = other args to pass to `FUN`
+- `simplify` = whether the simplify the result
+
+**Example: Column sums**
+
+```{r}
+mat <- matrix(1:9, nrow = 3)
+apply(mat, 2, sum)
+```
+
+**Example: Row means**
+
+```{r}
+apply(mat, 1, mean)
+```
+
+#### Important Limitation
+
+`apply()` converts data frames into matrices.
+
+This can cause type coercion.
+
+Example:
+
+```{r}
+df <- data.frame(
+    a = 1:3,
+    b = c("x", "y", "z")
+)
+
+apply(df, 2, class)
+```
+
+Everything becomes characters.
+
+Because of this:
+
+- `apply()` is best for numeric matrices
+- use `lapply()` for general lists/data frames
+
+### `lapply()`
+
+Applies a function to each element of a list and returns a list.
+
+Syntax:
+
+```{r}
+str(lapply)
+```
+
+`lapply` take three arguments: (1) a list `X`, (2) a function (or the name of a function) `FUN`, and (3) other arguments via its `...` argument. If `X` is not a list, it will be coerced to a list via `as.list`.
+
+**Example:**
+
+```{r}
+numbers <- list(a = 1:3, b = 4:6)
+
+lapply(numbers, sum)
+```
+
+**Key Characteristic**
+
+Always returns a list. This predictability is extremely important in robust programming.
+
+### `sapply()`
+
+Simplified `lapply()`.
+
+Attempts to simplify the result of `lapply()`.
+
+```{r}
+sapply(numbers, sum)
+```
+
+Instead of a list, it returned a vector.
+
+#### Why `sapply()` Can Be Dangerous
+
+Return types are inconsistent. Depending on data:
+
+- vector
+- matrix
+- list
+
+This unpredictability can break production code. For reliable code:
+
+- prefer `lapply()`
+- or `vapply()`
+
+### `vapply()`
+
+Safer version of `sapply()`.
+
+You explicitly define the output type.
+
+**Syntax:**
+
+```{r}
+str(vapply)
+```
+
+**Example:**
+
+```{r}
+vapply(numbers, sum, numeric(1))
+```
+
+This guarantees:
+
+- each result must be numeric
+- length 1
+
+If not, R throws an error. This is very valuable in production systems.
+
+### `mapply()`
+
+Multivariate apply. Applies a function to multiple inputs simultaneously. Equivalent to parallel iteration.
+
+Syntax:
+
+```{r}
+str(mapply)
+```
+
+**Example:**
+
+```{r}
+mapply(sum, 1:3, 4:6)
+```
+
+Equivalent conceptual loop:
+
+```{r}
+sum(1, 4)
+sum(2, 5)
+sum(3, 6)
+```
+
+**Another Example:**
+
+```{r}
+mapply(
+    function(x, y) x * y,
+    c(1, 2, 3),
+    c(10, 20, 30)
+)
+```
+
+### `Map()`
+
+Wrapper around `mapply()` that always returns a list.
+
+```{r}
+Map(
+    function(x, y) x * y,
+    c(1, 2),
+    c(10, 20)
+)
+```
+
+### `tapply()`
+
+Grouped apply. Applies a function over subsets defined by factors.
+
+Syntax:
+
+```{r}
+str(tapply)
+```
+
+Where:
+
+* `X` = data
+* `INDEX` = grouping variable
+* `FUN` = function to apply
+
+**Example:**
+
+```{r}
+scores <- c(90, 85, 88, 70, 95)
+groups <- c("A", "A", "B", "B", "B")
+
+tapply(scores, groups, mean)
+```
+
+Equivalent SQL mental model:
+
+```sql
+GROUP BY groups
+AVG(scores)
+```
+
+### `by()`
+
+Object-oriented version of `tapply()`.
+
+Used commonly with data frames.
+
+```{r}
+by(
+    iris$Sepal.Length,
+    iris$Species,
+    mean
+)
+```
+
+### `aggregate()`
+
+Very important for grouped operations on data frames.
+
+```{r}
+aggregate(mpg ~ cyl, data = mtcars, mean)
+```
+
+Equivalent idea:
+
+```sql
+SELECT cyl, AVG(mpg)
+GROUP BY cyl
+```
+
+### `split()`
+
+Splits data into groups.
+
+```{r}
+split(mtcars$mpg, mtcars$cyl)
+```
+
+Returns a list grouped by cylinder count.
+
+#### Powerful Pattern
+
+```{r}
+groups <- split(mtcars$mpg, mtcars$cyl)
+lapply(groups, mean)
+```
+
+This is effectively what `tapply()` does internally.
+
+## Modern Functional Iteration
+
+From the `tidyverse` ecosystem.
+
+Library:
+
+```{r}
+library(purrr)
+```
+
+### `map()`
+
+Equivalent to `lapply()`.
+
+```{r}
+map(list(1:3, 4:6), sum)
+```
+
+### Typed Maps
+
+Safer and cleaner.
+
+```{r}
+map_dbl(list(1:3, 4:6), sum)
+```
+
+Returns numeric vector.
+
+Other variants:
+
+* `map_chr()`
+* `map_int()`
+* `map_lgl()`
+
+### `map2()`
+
+Equivalent to `mapply()`.
+
+```{r}
+map2_dbl(c(1, 2), c(10, 20), ~ .x + .y)
+```
+
+### `pmap()`
+
+Generalized multi-input iteration. Useful for rows of data frames.
+
+## Performance Considerations
+
+Historically:
+
+* loops in R were slow
+* vectorization was dramatically faster
+
+Modern R has improved significantly.
+
+Today:
+
+* preallocated for loops are often perfectly acceptable
+* badly written loops remain slow
+
+**Bad Loop**
+
+```{r}
+x <- c()
+
+for (i in 1:10000) {
+    x <- c(x, i)
+}
+```
+
+Problem:
+
+* reallocates memory every iteration
+
+**Good Loop**
+
+```{r}
+x <- numeric(10000)
+
+for (i in 1:10000) {
+    x[i] <- i
+}
+```
+
+This preallocates memory once. Major performance improvement.
+
+## Mental Model Summary
+
+| Function    | Purpose                   | Returns        |
+|-------------|---------------------------|----------------|
+| for         | Explicit iteration        | Anything       |
+| while       | Conditional looping       | Anything       |
+| repeat      | Infinite loop until break | Anything       |
+| apply       | Matrix row/column ops     | Vector/list    |
+| lapply      | List iteration            | List           |
+| sapply      | Simplified list iteration | Simplified     |
+| vapply      | Typed/safe apply          | Fixed type     |
+| mapply      | Multi-input iteration     | Simplified     |
+| Map         | Multi-input iteration     | List           |
+| tapply      | Grouped computation       | Array/list     |
+| split       | Divide into groups        | List           |
+| aggregate   | Grouped summaries         | Data frame     |
+| map (purrr) | Functional iteration      | Typed variants |
+
+## Architectural Perspective
+
+In real-world R systems:
+
+* Use vectorization first
+* Use apply family second
+* Use explicit loops when:
+    * state changes between iterations
+    * simulations
+    * recursive algorithms
+    * iterative optimization
+    * sequential dependencies exist
+
+Production-grade R code often favors:
+
+```r
+vapply()
+purrr::map_*()
+data.table
+dplyr
+```
+
+because:
+
+* types are predictable
+* pipelines remain composable
+* debugging becomes easier
+* behavior is more deterministic
+
+## Example: Data Pipeline Style
+
+Traditional loop:
+
+```{r}
+results <- numeric(length(groups))
+
+for (i in seq_along(groups)) {
+    results[i] <- mean(groups[[i]])
+}
+```
+
+Functional style:
+
+```{r}
+sapply(groups, mean)
+```
+
+Modern tidyverse:
+
+```{r}
+map_dbl(groups, mean)
+```
+
+Same operation. Different abstraction levels.
+

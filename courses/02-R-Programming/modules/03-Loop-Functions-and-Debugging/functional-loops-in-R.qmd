@@ -1,0 +1,427 @@
+---
+title: Functional Loops in R
+format: html
+---
+
+## The Mental Model
+
+In Python you'd write `for item in collection: ...`. R treats functions as first-class citizens, so instead of *loops*, you *apply* a function to every element of a structure. Think of it like an assembly line: the collection is the conveyor belt, your function is the worker at each station, and the output is whatever the worker produces — a vector, a list, a data frame, or nothing (side effects only).
+
+The family splits into three lineages: **base R apply family**, **base R higher-order functions** (`Reduce`, `Filter`, `Map`), and `purrr` (the tidyverse rewrite with type safety).
+
+## Base R — the `apply` family
+
+### `apply()` — for matrices and arrays
+
+The grandfather. Works only on 2D+ structures.
+
+```{r}
+# MARGIN = 1 → apply fn to each ROW
+# MARGIN = 2 → apply fn to each COLUMN
+m <- matrix(1:12, nrow = 3)
+
+apply(m, 1, sum)
+apply(m, 2, mean)
+```
+
+Analogy: `apply(m, 1, fn)` is like slicing a loaf of bread horizontally — you get every row as a slice, then you do something to each slice.
+
+### `lapply()` — list in, list out. Always.
+
+The workhorse. Takes any vector or list, applies a function to each element, and **always returns a list** — no surprises, no coercion.
+
+```{r}
+nums <- list(a = 1:5, b = 6:10, c = 11:15)
+
+lapply(nums, mean)
+```
+
+Use `lapply` when you want to preserve structure, or when outputs are heterogeneous (different types per element).
+
+### `sapply()` — `lapply` with automatic simplification
+
+Same contract as `lapply`, but tries to simplify the result to a vector or matrix. The tradeoff: convenience vs predictability.
+
+```{r}
+sapply(nums, mean)
+```
+
+Returns a named numeric vector, not a list.
+
+**The trap**: if your function returns vectors of different lengths across elements, `sapply` falls back to a list silently — your type guarantee evaporates. That's why `vapply` exists.
+
+### `vapply()` — `sapply` with a type contract
+
+You specify *exactly* what output type and shape to expect. If the function deviates, it errors immediately rather than silently returning a list. This is the production-safe version.
+
+```{r}
+# Third arg: the expected return type template (numeric(1) = one double per call)
+vapply(nums, mean, numeric(1))
+```
+
+**Rule of thumb**: use `sapply` interactively for exploration, `vapply` in any code that will run unattended (scripts, pipelines, package internals).
+
+### `tapply()` — apply by group (like a GROUP BY)
+
+Splits a vector into groups defined by a factor, applies a function to each group. Think SQL `GROUP BY` + aggregate.
+
+```{r}
+scores <- c(85, 92, 78, 90, 88, 76)
+groups <- c("A", "B", "A", "B", "A", "B")
+
+tapply(scores, groups, mean)
+```
+
+Internally, `tapply` is `split()` + `lapply()` fused into one call — which brings us to the utility functions below.
+
+#### `mapply()` — multivariate `sapply`
+
+When your function takes *multiple* arguments and you want to vectorize over all of them in parallel.
+
+```{r}
+mapply(function(x, y) x ^ y,
+       x = c(2, 3, 4),
+       y = c(3, 2, 1))
+# [1] 8 9 4     ← 2^3, 3^2, 4^1
+```
+
+#### `rapply()` — recursive apply
+
+Operates on arbitrarily nested lists, walking the entire tree. Useful for deeply nested JSON-like structures.
+
+```{r}
+nested <- list(a = list(x = 1:3, y = 4:6), b = list(x = 7:9))
+
+rapply(nested, mean, how = "unlist")
+
+# how = "replace" → preserves the original list structure
+rapply(nested, mean, how = "replace")
+```
+
+## Base R — higher-order functions
+
+These are the functional programming primitives — clean, composable, and often underused.
+
+### `Reduce()` — **fold** / **accumulate**
+
+Collapses a list or vector into a single value by repeatedly applying a binary function. This is the classic **fold** from FP.
+
+```{r}
+# Sum via fold: ((1 + 2) + 3) + 4 + 5
+Reduce("+", 1:5)
+
+# Accumulate intermediate results (like cumsum)
+Reduce("+", 1:5, accumulate = TRUE)
+# [1]  1  3  6 10 15
+
+# Right fold (from the right side)
+Reduce("+", 1:5, right = TRUE, accumulate = TRUE)
+```
+
+**Analogy**: imagine a snowball rolling down a hill, picking up more snow at each step. `Reduce` is the hill; each element is a patch of snow.
+
+### `Filter()` — keep elements matching a predicate
+
+```{r}
+evens <- Filter(function(x) x %% 2 == 0, 1:10)
+```
+
+Companion functions in the same family:
+
+| Function         | What it does                                      |
+|------------------|---------------------------------------------------|
+| `Filter(f, x)`   | keep elements where `f(x)` is `TRUE`              |
+| `Find(f, x)`     | return the *first* element where `f(x)` is `TRUE` |
+| `Position(f, x)` | return the *index* of the first match             |
+| `Negate(f)`      | return the logical complement of predicate `f`    |
+
+```{r}
+# Negate is incredibly useful
+not_even <- Negate(function(x) x %% 2 == 0)
+Filter(not_even, 1:10)
+```
+
+### `Map()` — parallel `lapply` over multiple inputs
+
+The base R equivalent of `mapply` but always returns a list (no simplification).
+
+```{r}
+Map(function(x, y) x + y, 1:3, 4:6)
+```
+
+## Utility functions
+
+### `split()` — divide and conquer
+
+`split(x, f)` divides `x` into a named list of sub-objects, grouped by factor `f`. By itself it's just a slicer, but paired with `lapply` it becomes one of R's most powerful patterns.
+
+```{r}
+df <- data.frame(
+    region = c("N", "S", "N", "S", "N"),
+    sales = c(100, 200, 150, 250, 120)
+)
+
+# Split df by region → list of two mini data frames
+groups <- split(df, df$region)
+
+# Now apply any function to each mini data frame
+lapply(groups, function(g) mean(g$sales))
+```
+
+This pattern — `split` → `lapply` → `do.call(rbind, ...)` — is the base R equivalent of `dplyr::group_by() |> summarise()`.
+
+### `do.call()` — call a function with a list as its argument list
+
+When your arguments live in a list, `do.call` unpacks them and passes each one as a named argument.
+
+```{r}
+args <- list(1:10, na.rm = TRUE)
+do.call(mean, args)
+
+# Classic use: rbind a list of data frames into one
+frames <- list(data.frame(x = 1:2), data.frame(x = 3:4))
+do.call(rbind, frames)
+```
+
+### `purrr` — the tidyverse upgrade
+
+`purrr` reimplements the `apply` family with consistent naming, strict type safety, and better composability. If you're in a tidyverse pipeline, prefer `purrr`.
+
+**Naming convention**: `map_{type}()`
+
+| Function          | Output type                  |
+|-------------------|------------------------------|
+| `map(.x, .f)`     | list (like `lapply`)         |
+| `map_lgl(.x, .f)` | logical vector               |
+| `map_int(.x, .f)` | integer vector               |
+| `map_dbl(.x, .f)` | double vector                |
+| `map_chr(.x, .f)` | character vector             |
+| `map_df(.x, .f)`  | data frame (via `bind_rows`) |
+
+```{r}
+library(purrr)
+
+map_dbl(list(a = 1:5, b = 6:10), mean)
+```
+
+Unlike `sapply`, `map_dbl` will error loudly if any element doesn't return a single double. That's the guarantee.
+
+### Multi-input: `map2() `and `pmap()`
+
+```{r}
+# Two parallel inputs
+map2_dbl(c(1, 2, 3), c(10, 20, 30), ~ .x * .y)
+
+# Arbitrary number of inputs (pass a list of lists)
+params <- list(mean = c(0, 5, 10), sd = c(1, 2, 3))
+pmap(params, rnorm, n = 3)    # generates 3 normal samples per row of params
+```
+
+#### Side effects only: `walk()`
+
+When you don't need the return value — writing files, printing, updating a database. Returns `.x` invisibly so pipelines stay composable.
+
+```{r}
+walk(list("a.csv", "b.csv", "c.csv"), function(f) {
+    cat("Processing: ", f, "\n")
+})
+```
+
+## Decision Cheat Sheet
+
+| Situation                            | Use                                   |
+|--------------------------------------|---------------------------------------|
+| Apply fn to matrix rows/cols         | `apply(m, 1_or_2, fn)`                |
+| List in, list out, safe              | `lapply(x, fn)`                       |
+| List in, simplified out, interactive | `sapply(x, fn)`                       |
+| List in, simplified out, production  | `vapply(x, fn, type_template)`        |
+| Group-by aggregate                   | `tapply(x, group, fn)`                |
+| Multiple parallel inputs             | `mapply(fn, x, y)` or `Map(fn, x, y)` |
+| Nested list traversal                | `rapply(x, fn, how=)`                 |
+| Fold to single value                 | `Reduce(fn, x)`                       |
+| Keep matching elements               | `Filter(predicate, x)`                |
+| Group data, then apply               | `split(x, f)` + `lapply(...)`         |
+| Bind arg list to a fn                | `do.call(fn, arg_list)`               |
+| Tidyverse pipeline, type-strict      | `map_dbl/chr/df(...)`                 |
+| Two inputs, tidyverse                | `map2(x, y, fn)`                      |
+| N inputs, tidyverse                  | `pmap(list_of_args, fn)`              |
+| Side effects only                    | `walk(x, fn)`                         |
+
+## Examples of `map_df`, `map2`, and `pmap`
+
+### `map_df()`
+
+**Scenario**: Summarise each group of exam scores into a one-row data frame, then bind all rows
+
+* Input: list of vectors
+* Output: data frame
+
+```{r}
+# Each element of the list is a named score vector
+scores <- list(
+    math    = c(85, 90, 78, 92, 88),
+    science = c(70, 75, 80, 85, 72),
+    english = c(91, 88, 94, 79, 85)
+)
+
+map_df(scores, function(x) {
+    data.frame(
+        mean   = round(mean(x), 1),
+        sd     = round(sd(x), 1),
+        top    = max(x),
+        passed = sum(x >= 80)
+    )
+}, .id = "subject")    # .id names the source element
+```
+
+Equivalent with tilde shorthand (purrr formula style):
+
+```{r}
+map_df(scores,
+    ~ data.frame(mean = round(mean(.x), 1),
+                 passed = sum(.x >= 80)),
+    .id = "subject"
+)
+```
+
+`.x` refers to the current element — the tilde creates an anonymous function on the fly.
+
+### `map2()` / `map2_dbl()`
+
+**Scenario**: Calculate compound interest for each principal + rate pair.
+
+* Input: Two parallel vectors
+* Output: List or typed vector
+
+```{r}
+principals <- c(1000, 2500, 5000, 10000)
+rates      <- c(0.03, 0.05, 0.07, 0.10)
+
+# map2 → list; map2_dbl → double vector (type-safe)
+map2_dbl(principals, rates, function(p, r) {
+    round(p * (1 + r)^10, 2)
+})
+
+# tilde shorthand: .x = first input, .y = second
+map2_dbl(principals, rates, ~ round(.x * (1 + .y)^10, 2))
+```
+
+#### `map2` vs `map2_dbl` — the type contract
+
+```{r}
+# map2 → always a list, never errors on mixed types
+map2(c(1, 2, 3), c("a", "b", "c"), ~ paste(.x, .y))
+
+# map2_chr → typed, errors if fn returns non-character
+map2_chr(c(1, 2, 3), c("a", "b", "c"), ~ paste(.x, .y))
+```
+
+### `pmap()` / `pmap_dbl()`
+
+**Scenario**: Generate N random normal samples, each with its own n, mean, and sd.
+
+* Input: List of N parallel vectors
+* Output: List or typed vector
+* N >= 3 inputs
+
+```{r}
+# A named list — each row is one function call's arguments
+params <- list(
+    n    = c(5,   3,   4  ),
+    mean = c(0,   10,  -5 ),
+    sd   = c(1,   2,   0.5)
+)
+
+# pmap passes each column as a named argument to rnorm()
+pmap(params, rnorm)
+
+# With a data frame (each row = one call)
+df_params <- data.frame(
+  n    = c(5, 3, 4),
+  mean = c(0, 10, -5),
+  sd   = c(1, 2, 0.5)
+)
+pmap(df_params, rnorm)   # data frames are lists — same call
+```
+
+Live example — custom loan payment calculator across 3 scenarios
+
+```{r}
+# Monthly payment: P * r / (1 - (1+r)^-n)
+scenarios <- list(
+  principal = c(200000, 350000, 500000),
+  rate_yr   = c(0.04,   0.055,  0.07  ),
+  years     = c(15,     20,     30    )
+)
+
+pmap_dbl(scenarios, function(principal, rate_yr, years) {
+  r <- rate_yr / 12
+  n <- years * 12
+  round(principal * r / (1 - (1 + r)^(-n)), 2)
+})
+```
+
+Tilde shorthand with N inputs uses ..1, ..2, ..3
+
+```{r}
+pmap_dbl(scenarios,
+  ~ {
+    r <- ..2 / 12          # ..2 = rate_yr
+    n <- ..3 * 12          # ..3 = years
+    round(..1 * r / (1 - (1 + r)^(-n)), 2)
+  }
+)
+# For clarity, prefer explicit function(principal, rate_yr, years)
+# over ..1 ..2 ..3 — names self-document
+```
+
+### `pmap_dbl` vs `pmap` — same rule as `map2`
+
+```r
+pmap(params, rnorm)       # list — elements can be any type/length
+pmap_dbl(params, fn)      # errors if fn doesn't return exactly 1 double
+pmap_chr(params, fn)      # errors if fn doesn't return exactly 1 string
+pmap_df(params, fn)       # binds rows into a data frame
+```
+
+Here's the conceptual thread that ties all three together — they form a progression:
+
+#### The input-count progression
+
+Think of `map`, `map2`, and `pmap` as the same machine with progressively more input conveyors:
+
+```r
+map(.x, fn)             →  one conveyor belt
+map2(.x, .y, fn)        →  two parallel conveyor belts
+pmap(list(.x,.y,.z), fn) →  N parallel conveyor belts
+```
+
+In every case, the function is called once per "row" across all inputs simultaneously. The output shape is determined by the suffix: no suffix = list, `_dbl` = double vector, `_chr` = character vector, `_df` = data frame via `bind_rows`.
+
+#### `map_df()` — the ETL workhorse
+
+The key design insight: your function returns a one-row `data.frame` per element, and `map_df` automatically stacks all those rows into a single data frame. This makes it ideal for the extract-transform-load pattern inside R — read a list of files, parse each one into a structured row, get one clean table back.
+
+The `.id` argument is particularly useful: it names the output column that records which input element produced each row. Without it you lose the provenance of each row.
+
+#### `map2(`) — when your function has two arguments that vary together
+
+The important constraint: `.x` and `.y` must be the same length — they're zipped, not crossed. If you want a cross product (every combination), you'd use `expand.grid()` first, then `pmap`.
+
+```r
+# Zipped (what map2 does):    (1,a), (2,b), (3,c)
+# Cross product (expand.grid): (1,a), (1,b), (1,c), (2,a), (2,b) ...
+```
+
+#### `pmap(`) — the general case, and the data frame trick
+
+The most powerful pattern: because a data frame *is* a list of equal-length columns, you can pass a data frame of parameters directly to `pmap`. Each row becomes one function call. This makes `pmap` the natural tool for anything that looks like a parameter sweep, config-driven processing, or row-wise model fitting — patterns you'd otherwise reach for `rowwise()` + `dplyr::mutate()` for.
+
+```r
+# These are identical:
+pmap(list(a = 1:3, b = 4:6), fn)
+pmap(data.frame(a = 1:3, b = 4:6), fn)
+```
+
+The named list/data frame approach is also self-documenting — column names become the argument names inside the function, which eliminates the cryptic `..1`, `..2` indexing of tilde shorthand for anything with more than two inputs.
+
