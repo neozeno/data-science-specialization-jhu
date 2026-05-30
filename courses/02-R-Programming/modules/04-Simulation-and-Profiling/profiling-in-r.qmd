@@ -1,0 +1,75 @@
+---
+title: Profiling in R
+format: html
+---
+
+## Why is My Code So Slow?
+
+* Profiling is a systematic way to examine how much time is spent in different parts of a program
+* Useful when optimizing code
+* Often code runs fine once, but what if we have to put it in a loop for 1,000 iterations? Is it still fast enough?
+* Profiling is better than guessing
+
+## General Principles of Optimization
+
+* Design first, then optimize
+* Premature optimization is the root of all evil
+* Measure (collect data), don't guess
+
+## Using `system.time()`
+
+* `system.time()` takes an arbitrary R expression as input (can be wrapped in curly braces) and returns the amount of time taken to evaluate that expression.
+* It computes the time (in seconds) needed to execute an expression.
+  * If there is an error, it returns the time until the error occured.
+* Returns and object of class `proc_time`.
+  * **user time**: time charged to the CPU(s) for the expression
+  * **elapsed time**: "wall clock" time
+* Usually, the user time and elapsed time are relatively close, for straight computing tasks
+* Elapsed time may be greater than user time if the CPU spends a lot of time waiting around
+* Elapsted time may be smaller than the user time if your machine has multiple cores/processors (and is capable of using them)
+  * Multi-threaded BLAS libraries (vecLib/Accelerate, ATLAS, ACML, MKL)
+  * Parallel processing via the `parallel` package
+
+```{r}
+# Elapsed time > user time
+system.time(readLines("https://www.google.com"))
+
+# Elapsed time < user time
+hilbert <- function(n) {
+    i <- 1:n
+    1 / outer(i - 1, i, "+")
+}
+x <- hilbert(1000)
+system.time(svd(x))
+```
+
+### Timing Longer Expressions
+
+```{r}
+system.time({
+    n <- 1000
+    r <- numeric(n)
+
+    for (i in 1:n) {
+        x <- rnorm(x)
+        r[i] <- mean(x)
+    }
+})
+```
+
+## The R Profiler
+
+The `Rprof()` function starts the profiler in R. (R must be compiled with profiler support). `Rprof()` keeps track of the function call stack at regularly sampled intervals and tabulates how much time is spent on each function. Default sampling interval is 0.02 seconds.
+
+> DO NOT use `system.time()` and `Rprof` together!
+
+### Using `summaryRprof`
+
+The `summaryRprof()` function tabulates the R profiler output and calculates how much time is spent on which function, summarizing it.
+
+There are two methods to normalize the data:
+
+* `by.total`, which divides the time spent on each by the total runtime
+* `by.self`, which does the same but first subtracts out time the time spent in function above the call stack
+
+
